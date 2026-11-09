@@ -130,6 +130,9 @@ expect_fail ".envrc (direnv)" "environment file is tracked: tools/.envrc"
 new_repo; put "config/.ENV" "X=1"
 expect_fail ".ENV in capitals" "environment file is tracked: config/.ENV"
 
+new_repo; put "deploy/prod.env" "X=1"
+expect_fail "name.env" "environment file is tracked: deploy/prod.env"
+
 new_repo; put "my folder/.env" "X=1"
 expect_fail ".env under a folder name with a space" "environment file is tracked: my folder/.env"
 
@@ -171,6 +174,12 @@ expect_fail "pull_request_target at the top of a large workflow" ".github/workfl
 # --- Check 4: actions pinned to a commit SHA ---
 new_repo; put ".github/workflows/bad.yml" "$(step '- uses: actions/checkout@v4')"
 expect_fail "tag pin" "action not pinned to a commit SHA: actions/checkout@v4"
+
+new_repo; put ".github/workflows/Bad.YML" "$(step '- uses: actions/checkout@v4')"
+expect_fail "workflow with an upper-case extension" ".github/workflows/Bad.YML: action not pinned to a commit SHA"
+
+new_repo; put ".github/actions/x/Action.yml" "$(step '- uses: evil/act@main')"
+expect_fail "composite action with an upper-case name" ".github/actions/x/Action.yml: action not pinned to a commit SHA"
 
 new_repo; put ".github/workflows/bad.yml" "$(step "- uses: 'actions/checkout@v4'")"
 expect_fail "quoted tag pin" "action not pinned to a commit SHA: actions/checkout@v4"

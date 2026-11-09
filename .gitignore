@@ -3,6 +3,7 @@
 .env.*
 !.env.example
 .envrc
+*.env
 
 # Key and credential files. Push protection catches many secrets, not all of them.
 *.pem

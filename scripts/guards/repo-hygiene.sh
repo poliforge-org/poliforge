@@ -48,16 +48,17 @@ yaml_files=()
 found_own_workflow=false
 # "${array[@]+...}" keeps an empty array from tripping set -u on older bash (macOS ships 3.2).
 for path in "${files[@]+"${files[@]}"}"; do
-  name="${path##*/}"
   # Names are compared in lower case: on a case-insensitive file system (macOS by default), .ENV
   # is the same file a dotenv loader reads as .env. tr, not ${name,,}, for bash 3.2 on macOS.
-  lower_name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+  lower_path="$(printf '%s' "$path" | tr '[:upper:]' '[:lower:]')"
+  lower_name="${lower_path##*/}"
 
   # 1. No environment files. .env.example (placeholders only) is the one allowed exception.
-  #    .envrc is direnv's environment file and holds the same kind of secrets.
+  #    .envrc is direnv's environment file, and name.env (prod.env) is a common habit; both hold
+  #    the same kind of secrets.
   case "$lower_name" in
     .env.example) ;;
-    .env | .env.* | .envrc) fail "environment file is tracked: $path (secrets belong in a gitignored .env)" ;;
+    .env | .env.* | .envrc | *.env) fail "environment file is tracked: $path (secrets belong in a gitignored .env)" ;;
   esac
 
   # 2. No macOS metadata files.
@@ -67,10 +68,10 @@ for path in "${files[@]+"${files[@]}"}"; do
 
   # Checks 3 and 4 only look at YAML that can name an action. Globs, not regexes, so the dots are
   # literal.
-  case "$path" in
+  case "$lower_path" in
     .github/workflows/*.yml | .github/workflows/*.yaml) yaml_files+=("$path") ;;
     *)
-      case "$name" in
+      case "$lower_name" in
         action.yml | action.yaml) yaml_files+=("$path") ;;
       esac
       ;;

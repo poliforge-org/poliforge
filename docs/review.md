@@ -19,7 +19,9 @@ before asking the maintainer to merge.
 | Stack CI (once the stack is chosen) | Type errors, failing tests, broken builds, a run with no tests | Added with the stack decision record |
 
 The guards read workflow YAML as text, not as YAML, so YAML written to hide a key from a text
-search can get past them, and `container:` and `services:` images aren't checked. The required
+search can get past them. `container:` and `services:` images aren't checked, and of the triggers
+that give fork activity secrets and a write token, only `pull_request_target` is banned so far
+(`workflow_run` and `issue_comment` are not). The required
 SHA pinning setting is what enforces pinning; the guards catch ordinary mistakes early. Read any
 change to `.github/` or `scripts/guards/` yourself rather than trusting a green run.
 

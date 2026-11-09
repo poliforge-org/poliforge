@@ -160,7 +160,12 @@ test('CI: an event with no pull request exits 1 instead of passing', () => {
 });
 
 test('CI: no event file and no argument exits 1', () => {
-  const run = spawnSync(process.execPath, [script], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
+  const run = spawnSync(process.execPath, [script], {
+    env: { PATH: process.env.PATH },
+    encoding: 'utf8',
+  });
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+});
 
 test('local: a missing template exits 1 instead of counting it as writing', () => {
   const copy = join(work, 'no-template', 'scripts', 'guards');
@@ -191,9 +196,6 @@ test('local: run through a symlinked folder, a thin file still exits 1', () => {
   const linked = join(work, 'linked-guards');
   symlinkSync(dirname(script), linked, 'dir');
   const run = runWithFile(template, join(linked, 'pr-description.mjs'));
-  assert.equal(run.status, 1, run.stdout + run.stderr);
-});
-
   assert.equal(run.status, 1, run.stdout + run.stderr);
 });
 
