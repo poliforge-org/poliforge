@@ -49,16 +49,19 @@ found_own_workflow=false
 # "${array[@]+...}" keeps an empty array from tripping set -u on older bash (macOS ships 3.2).
 for path in "${files[@]+"${files[@]}"}"; do
   name="${path##*/}"
+  # Names are compared in lower case: on a case-insensitive file system (macOS by default), .ENV
+  # is the same file a dotenv loader reads as .env. tr, not ${name,,}, for bash 3.2 on macOS.
+  lower_name="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
 
   # 1. No environment files. .env.example (placeholders only) is the one allowed exception.
   #    .envrc is direnv's environment file and holds the same kind of secrets.
-  case "$name" in
+  case "$lower_name" in
     .env.example) ;;
     .env | .env.* | .envrc) fail "environment file is tracked: $path (secrets belong in a gitignored .env)" ;;
   esac
 
   # 2. No macOS metadata files.
-  if [ "$name" = ".DS_Store" ]; then
+  if [ "$lower_name" = ".ds_store" ]; then
     fail ".DS_Store is tracked: $path"
   fi
 
@@ -88,7 +91,8 @@ uses_key="(^|[^[:alnum:]_-])[\"']?uses[\"']?[[:space:]]*:"
 
 # Checks 3 and 4 read the files as text, not as YAML, so YAML written to hide a key from a text
 # search gets past them: escaped key names ("use\x73"), explicit keys (? uses) and anchors or
-# aliases used as keys. The repository's "require actions to be pinned to a full-length commit
+# aliases used as keys. Container images named with image: or container: aren't checked at all.
+# The repository's "require actions to be pinned to a full-length commit
 # SHA" setting enforces pinning when a workflow runs; this guard catches ordinary mistakes early
 # and in review. Reviewers should read any change to .github/ or scripts/guards/ themselves.
 for wf in "${yaml_files[@]+"${yaml_files[@]}"}"; do
@@ -119,9 +123,10 @@ for wf in "${yaml_files[@]+"${yaml_files[@]}"}"; do
   #    Known limit: the words "uses:" inside a run: script are checked too and may be flagged.
   #    That is a false alarm, never a miss; reword the script line if it happens.
 
-  # A value on the next line (uses: followed by a line break) can't be read line by line, so it
-  # is rejected rather than skipped.
-  if grep -qE "${uses_key}[[:space:]]*\$" <<< "$code"; then
+  # A value that continues on the next line can't be read line by line, so it is rejected rather
+  # than skipped: nothing after the colon, a block scalar (> or |), or a quote that isn't closed
+  # on the same line ("uses: \"" with the reference below it).
+  if grep -qE "${uses_key}[[:space:]]*(([>|][-+0-9]*)?|\"[^\"]*|'[^']*)[[:space:]]*\$" <<< "$code"; then
     fail "$wf: put each action reference on the same line as its uses: key, so the pin can be checked"
   fi
 

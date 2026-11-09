@@ -11,12 +11,17 @@ before asking the maintainer to merge.
 
 | Check | What it catches | Where it's configured |
 |---|---|---|
-| Guards workflow | Thin PR descriptions once a PR is ready for review (drafts are skipped); committed `.env`/`.envrc` files and `.DS_Store`; `pull_request_target`; actions not pinned to a commit SHA and docker images not pinned to a digest, in workflows and `action.yml` files. The guards' own tests run in the same job. The guards read YAML as text, so YAML written to hide a key can get past them; the repo setting below is what enforces pinning. | `.github/workflows/guards.yml`, `scripts/guards/` |
+| Guards workflow | Thin PR descriptions once a PR is ready for review; committed `.env`/`.envrc` files and `.DS_Store`; `pull_request_target`; `uses:` actions not pinned to a commit SHA, and `uses: docker://` images not pinned to a digest, in workflows and `action.yml` files. The guards' own tests run in the same job. | `.github/workflows/guards.yml`, `scripts/guards/` |
 | Required SHA pinning | Any action not pinned to a full commit SHA, blocked when the workflow runs | Repo settings (Actions) |
 | Secret scanning + push protection | API keys and tokens, blocked before they land | Repo settings |
 | CodeQL code scanning | Injection, cross-site scripting, path traversal and similar flaws | Repo settings (default setup) |
 | Dependabot | Known-vulnerable dependencies and outdated pinned actions | Repo settings, `.github/dependabot.yml` |
 | Stack CI (once the stack is chosen) | Type errors, failing tests, broken builds, a run with no tests | Added with the stack decision record |
+
+The guards read workflow YAML as text, not as YAML, so YAML written to hide a key from a text
+search can get past them, and `container:` and `services:` images aren't checked. The required
+SHA pinning setting is what enforces pinning; the guards catch ordinary mistakes early. Read any
+change to `.github/` or `scripts/guards/` yourself rather than trusting a green run.
 
 A red automated check is never fixed by weakening the check. Fix the cause, or ask the maintainer.
 

@@ -12,8 +12,12 @@
 // "Own writing" means everything except what came from .github/pull_request_template.md: its
 // HTML comments, and any line copied from it unchanged (ticking a checklist box doesn't count as
 // changing it). The check reads the template itself rather than a list of its phrases, so editing
-// the template can't quietly leave old boilerplate counting as prose. Headings and the footer AI
-// tools add ("🤖 Generated with ...") don't count either.
+// the template can't quietly leave old boilerplate counting as prose. Headings, lines that are
+// only table borders, and the footer Claude Code adds (FOOTER_START below) don't count either.
+// A template line quoted with "> " is still a template line.
+//
+// It counts characters, not quality: it is a floor against an empty template, and reviewers
+// judge the rest.
 //
 // Draft PRs are skipped, because a draft's description is still being written. Once a PR is
 // ready for review, the check runs on every update to it (new commits, edited description).
@@ -33,18 +37,26 @@ export const MIN_CHARS = 200;
 // node: imports above fail before main() runs, with Node's own error.
 const MIN_NODE_MAJOR = 18;
 
+// The footer Claude Code adds to PR descriptions. Everything from it on is boilerplate. If another
+// tool's footer turns up in PRs, add its first words here.
+const FOOTER_STARTS = ['🤖 Generated with'];
+
 export const TEMPLATE_PATH = fileURLToPath(
   new URL('../../.github/pull_request_template.md', import.meta.url),
 );
 
-// Compare lines without caring about indentation, repeated spaces, the list marker (-, * or +)
-// or whether a checkbox is ticked.
+// Compare lines without caring about indentation, repeated spaces, quoting with ">", the list
+// marker (-, * or +) or whether a checkbox is ticked.
 function normalize(line) {
   return line
     .trim()
+    .replace(/^(>\s*)+/, '')
     .replace(/\s+/g, ' ')
     .replace(/^[-*+] \[[ xX]\]/, '- [ ]');
 }
+
+// A table border or an empty table row (| | |, |---|---|) holds no writing.
+const TABLE_ONLY = /^[|:\-\s]+$/;
 
 // An HTML comment that is never closed hides the rest of the text, as it would on GitHub.
 function withoutComments(text) {
@@ -59,9 +71,9 @@ export function authorProse(body, template) {
   const kept = [];
   for (const raw of withoutComments(body ?? '').split('\n')) {
     const line = normalize(raw);
-    // Everything from the AI-tool footer on is boilerplate.
-    if (line.startsWith('🤖 Generated with')) break;
-    if (!line || templateLines.has(line) || /^#{1,6}(\s|$)/.test(line)) continue;
+    if (FOOTER_STARTS.some((start) => line.startsWith(start))) break;
+    if (!line || templateLines.has(line) || TABLE_ONLY.test(line)) continue;
+    if (/^#{1,6}(\s|$)/.test(line)) continue;
     kept.push(line);
   }
   return kept.join(' ');
@@ -82,7 +94,10 @@ export function checkPullRequest({ body, draft }, template) {
         'docs/review.md. Lines left as they are in the template don\'t count.',
     };
   }
-  return { ok: true, message: `PR description: ${length} characters of the author's own writing (minimum ${MIN_CHARS}).` };
+  return {
+    ok: true,
+    message: `PR description: ${length} characters of the author's own writing (minimum ${MIN_CHARS}).`,
+  };
 }
 
 function readPullRequest(argv, env) {
@@ -90,7 +105,10 @@ function readPullRequest(argv, env) {
     return { body: readFileSync(argv[0], 'utf8'), draft: false };
   }
   if (!env.GITHUB_EVENT_PATH) {
-    throw new Error('Usage: node scripts/guards/pr-description.mjs <description file> (or run in a GitHub Actions pull_request job).');
+    throw new Error(
+      'Usage: node scripts/guards/pr-description.mjs <description file> ' +
+        '(or run it in a GitHub Actions pull_request job).',
+    );
   }
   const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
   // The workflow only runs this job for pull_request events. If the event has no pull request,
@@ -109,7 +127,9 @@ function main() {
     }
     // Without the template, its boilerplate would count as the author's writing.
     if (!existsSync(TEMPLATE_PATH)) {
-      throw new Error(`${TEMPLATE_PATH} is missing; the check can't tell template text from the author's writing.`);
+      throw new Error(
+        `${TEMPLATE_PATH} is missing; the check can't tell template text from the author's writing.`,
+      );
     }
     const template = readFileSync(TEMPLATE_PATH, 'utf8');
     const result = checkPullRequest(readPullRequest(process.argv.slice(2), process.env), template);

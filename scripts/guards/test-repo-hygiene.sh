@@ -54,9 +54,12 @@ put() {
   printf '%s\n' "$2" > "$repo/$1"
 }
 
-# run_guard: stage everything in the current case's repository and run the guard there.
+# run_guard: stage everything in the current case's repository and run the guard there. With
+# stage=no set, nothing is staged (for the case where the guard must see no tracked files).
 run_guard() {
-  git -C "$repo" add -A -f
+  if [ "${stage:-yes}" = yes ]; then
+    git -C "$repo" add -A -f
+  fi
   set +e
   output="$(cd "$repo" && bash scripts/guards/repo-hygiene.sh 2>&1)"
   status=$?
@@ -124,12 +127,18 @@ expect_fail ".env under a non-ASCII folder name" "environment file is tracked: �
 new_repo; put "tools/.envrc" "export X=1"
 expect_fail ".envrc (direnv)" "environment file is tracked: tools/.envrc"
 
+new_repo; put "config/.ENV" "X=1"
+expect_fail ".ENV in capitals" "environment file is tracked: config/.ENV"
+
 new_repo; put "my folder/.env" "X=1"
 expect_fail ".env under a folder name with a space" "environment file is tracked: my folder/.env"
 
 # --- Check 2: .DS_Store ---
 new_repo; put "docs/.DS_Store" "x"
 expect_fail "nested .DS_Store" ".DS_Store is tracked: docs/.DS_Store"
+
+new_repo; put "a/.DS_STORE" "x"
+expect_fail ".DS_STORE in capitals" ".DS_Store is tracked: a/.DS_STORE"
 
 new_repo; put "ñ/.DS_Store" "x"
 expect_fail ".DS_Store under a non-ASCII folder name" ".DS_Store is tracked: ñ/.DS_Store"
@@ -200,6 +209,18 @@ new_repo; put ".github/workflows/bad.yml" "$(step '- uses:
         actions/checkout@v4')"
 expect_fail "uses with its value on the next line" "put each action reference on the same line as its uses: key"
 
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses: "
+        evil/act@main"')"
+expect_fail "double-quoted value continued on the next line" "put each action reference on the same line as its uses: key"
+
+new_repo; put ".github/workflows/bad.yml" "$(step "- uses: '
+        evil/act@main'")"
+expect_fail "single-quoted value continued on the next line" "put each action reference on the same line as its uses: key"
+
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses: >-
+        evil/act@main')"
+expect_fail "folded block value" "put each action reference on the same line as its uses: key"
+
 new_repo; put ".github/workflows/bad.yml" "jobs:
   a:
     uses: org/repo/.github/workflows/ci.yml@main"
@@ -215,15 +236,8 @@ expect_fail "short SHA" "action not pinned to a commit SHA: actions/checkout@012
 new_bare_repo; put "README.md" "x"
 expect_fail "guards.yml not tracked" "could not find .github/workflows/guards.yml"
 
-# Nothing is staged here, so run_guard (which stages everything first) can't be used.
 new_bare_repo
-set +e; output="$(cd "$repo" && bash scripts/guards/repo-hygiene.sh 2>&1)"; status=$?; set -e
-if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF "git ls-files returned no files"; then
-  passed=$((passed + 1))
-else
-  failed=$((failed + 1))
-  printf 'NOT OK: no tracked files: expected a failure, got exit %s:\n%s\n\n' "$status" "$output"
-fi
+stage=no expect_fail "no tracked files" "git ls-files returned no files"
 
 # --- Every problem is reported, not only the first ---
 new_repo; put ".env" "X=1"; put "a/.DS_Store" "x"; put ".github/workflows/bad.yml" "on: [pull_request_target]

@@ -8,7 +8,15 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,6 +65,15 @@ test('ticking with * or + markers or extra spaces adds no writing', () => {
 
 test('an unclosed HTML comment hides the rest, as it does on GitHub', () => {
   assert.equal(authorProse(`<!-- ${prose(300)}`, template), '');
+});
+
+test('the template quoted with > adds no writing', () => {
+  const quoted = template.split('\n').map((l) => `> ${l}`).join('\n');
+  assert.equal(authorProse(quoted, template), '');
+});
+
+test('empty table rows and borders add no writing', () => {
+  assert.equal(authorProse('| | | |\n|---|:---:|\n| | |\n'.repeat(30), template), '');
 });
 
 test('Windows line endings are handled', () => {
@@ -142,6 +159,18 @@ test('CI: an event with no pull request exits 1 instead of passing', () => {
   assert.equal(run.status, 1, run.stdout + run.stderr);
 });
 
+test('CI: no event file and no argument exits 1', () => {
+  const run = spawnSync(process.execPath, [script], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
+
+test('local: a missing template exits 1 instead of counting it as writing', () => {
+  const copy = join(work, 'no-template', 'scripts', 'guards');
+  mkdirSync(copy, { recursive: true });
+  copyFileSync(script, join(copy, 'pr-description.mjs'));
+  const run = runWithFile(prose(MIN_CHARS * 2), join(copy, 'pr-description.mjs'));
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stderr, /is missing/);
+});
+
 function runWithFile(body, scriptPath = script) {
   const file = join(work, 'description.md');
   writeFileSync(file, body);
@@ -165,11 +194,8 @@ test('local: run through a symlinked folder, a thin file still exits 1', () => {
   assert.equal(run.status, 1, run.stdout + run.stderr);
 });
 
-test('CI: no event file and no argument exits 1', () => {
-  const run = spawnSync(process.execPath, [script], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
   assert.equal(run.status, 1, run.stdout + run.stderr);
 });
-
 
 console.log(`test-pr-description: ${passed} passed, ${failed} failed.`);
 // A run with no cases would prove nothing.

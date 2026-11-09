@@ -4,6 +4,14 @@
 !.env.example
 .envrc
 
+# Key and credential files. Push protection catches many secrets, not all of them.
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
 # OS and editor files
 .DS_Store
 Thumbs.db

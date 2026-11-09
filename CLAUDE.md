@@ -9,7 +9,7 @@ Claude sessions.
   subagent, and give it only the diff, the issue, `AGENTS.md` and that lens's section of
   `docs/review.md`. Never pass this session's reasoning or summary of the change. Run the lenses in
   parallel, then paste the verdicts and your responses into the PR.
-- **First push of a new branch:** ask Tyler in chat and wait for a yes (see `AGENTS.md`).
+- **First push of a new branch:** ask the maintainer in chat and wait for a yes (see `AGENTS.md`).
 - **Don't read `.env` files** or print environment variables. If you need to know whether a
   variable is set, check for its presence without echoing the value.
 - **Ask before running anything that costs money** (paid API calls, a golden run against a live
