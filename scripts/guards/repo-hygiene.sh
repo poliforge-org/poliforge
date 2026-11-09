@@ -98,9 +98,9 @@ uses_key="(^|[^[:alnum:]_-])[\"']?uses[\"']?[[:space:]]*:"
 # and in review. Reviewers should read any change to .github/ or scripts/guards/ themselves.
 for wf in "${yaml_files[@]+"${yaml_files[@]}"}"; do
   # Only lines that are entirely a comment are skipped, so a comment may explain a rule (the header
-  # of guards.yml names the banned trigger) without tripping it. Comments at the end of a line are
+  # of guards.yml names the banned triggers) without tripping it. Comments at the end of a line are
   # left in: telling them apart from a # inside a quoted value ("step #1") needs a YAML parser, and
-  # guessing wrong would hide real YAML from the checks. A trailing comment that mentions the banned
+  # guessing wrong would hide real YAML from the checks. A trailing comment that mentions a banned
   # trigger or a `uses:` therefore fails the guard, which is the safe way to be wrong.
   #
   # The text is passed to grep with <<< rather than through a pipe: with pipefail set, grep -q
@@ -114,7 +114,8 @@ for wf in "${yaml_files[@]+"${yaml_files[@]}"}"; do
   #    repository is public"). The words are matched anywhere, so a step name that mentions one
   #    fails too; that is a false alarm, never a miss.
   for trigger in pull_request_target workflow_run issue_comment; do
-    if grep -q "$trigger" <<< "$code"; then
+    # -i: event names are lower case, so a mixed-case spelling is never legitimate.
+    if grep -qi "$trigger" <<< "$code"; then
       fail "$wf uses $trigger"
     fi
   done

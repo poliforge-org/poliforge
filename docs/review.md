@@ -19,7 +19,9 @@ before asking the maintainer to merge.
 | Stack CI (once the stack is chosen) | Type errors, failing tests, broken builds, a run with no tests | Added with the stack decision record |
 
 The guards read workflow YAML as text, not as YAML, so YAML written to hide a key from a text
-search can get past them, and `container:` and `services:` images aren't checked. The required
+search can get past them. `container:` and `services:` images aren't checked, and of the triggers
+anyone can set off, only `pull_request_target`, `workflow_run` and `issue_comment` are banned so
+far (`issues`, `discussion` and `discussion_comment` are not). The required
 SHA pinning setting is what enforces pinning; the guards catch ordinary mistakes early. Read any
 change to `.github/` or `scripts/guards/` yourself rather than trusting a green run.
 
@@ -60,7 +62,8 @@ Check:
 - Auth and access: who can call this, and is that checked on the server, not only in the UI?
 - Network: outbound requests go only to hosts the code intends (no user-controlled URLs without
   an allowlist). Timeouts and error handling don't leak internals.
-- CI and supply chain: new workflows or steps, permissions they request, the `pull_request_target`, `workflow_run` and `issue_comment` triggers,
+- CI and supply chain: new workflows or steps, permissions they request, the triggers
+  `pull_request_target`, `workflow_run` and `issue_comment`,
   unpinned actions, new dependencies (are they maintained, widely used, and needed at all?).
 - Prompt-injection exposure: does untrusted text (web pages, documents, user messages) reach an
   AI model in a way that could change what the software does?

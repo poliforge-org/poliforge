@@ -46,7 +46,7 @@ Every push is visible to the world the moment it lands, including branches, issu
 - In CI, never use the `pull_request_target`, `workflow_run` or `issue_comment` triggers, which run
   with secrets and a write token in response to fork activity, and never give secrets to a
   workflow that runs code from a fork. Pin every third-party action to a full commit SHA. The
-  guards workflow checks both.
+  guards workflow checks for those triggers and for unpinned actions.
 - Logs, error messages, fixtures and screenshots contain no keys and no real personal data.
 
 ## Data rules

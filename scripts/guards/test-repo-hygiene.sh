@@ -19,7 +19,7 @@ failed=0
 n=0
 
 # A guards.yml that passes every check, used as the base of each case.
-good_workflow='# This header may mention pull_request_target and uses: x@v1 without failing.
+good_workflow='# This header may mention pull_request_target, workflow_run, issue_comment and uses: x@v1.
 name: Guards
 on:
   pull_request:
@@ -173,6 +173,14 @@ expect_fail "workflow_run" ".github/workflows/bad.yml uses workflow_run"
 new_repo; put ".github/workflows/bad.yml" "on: [issue_comment]
 jobs: {}"
 expect_fail "issue_comment" ".github/workflows/bad.yml uses issue_comment"
+
+new_repo; put ".github/workflows/bad.yml" "on: [Issue_Comment]
+jobs: {}"
+expect_fail "issue_comment in mixed case" ".github/workflows/bad.yml uses issue_comment"
+
+new_repo; put ".github/workflows/bad.yml" "on: [push] # workflow_run would be wrong here
+jobs: {}"
+expect_fail "workflow_run in a trailing comment" ".github/workflows/bad.yml uses workflow_run"
 
 # Over 64 KB, where a pipe into grep -q could lose the match.
 new_repo; put ".github/workflows/bad.yml" "on: [pull_request_target]
