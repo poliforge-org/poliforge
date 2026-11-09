@@ -1,0 +1,9 @@
+# Keeps the commit-SHA pins in .github/workflows/ up to date. Package ecosystems (npm, pip, ...)
+# are added here once the stack decision record picks a stack.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

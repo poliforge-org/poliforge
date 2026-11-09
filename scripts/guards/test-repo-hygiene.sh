@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# Tests for scripts/guards/repo-hygiene.sh. Runs in CI (.github/workflows/guards.yml) and locally:
+#   bash scripts/guards/test-repo-hygiene.sh
+#
+# A guard that stops catching what it was written to catch fails silently, so every check in the
+# guard has a case here that must fail, alongside cases that must pass. Each case builds a
+# throwaway git repository holding the guard, a known-good guards.yml and the files under test,
+# stages them (the guard reads the index, so nothing is committed) and runs the guard.
+
+set -euo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+guard="$root/scripts/guards/repo-hygiene.sh"
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+passed=0
+failed=0
+n=0
+
+# A guards.yml that passes every check, used as the base of each case.
+good_workflow='name: Guards
+on:
+  pull_request:
+jobs:
+  a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v1.0.0
+      - uses: ./local-action
+      - uses: docker://alpine:3
+'
+
+# new_repo: make an empty repository with the guard and the good workflow staged.
+new_repo() {
+  n=$((n + 1))
+  repo="$work/case$n"
+  mkdir -p "$repo/.github/workflows" "$repo/scripts/guards"
+  git -C "$repo" init -q
+  cp "$guard" "$repo/scripts/guards/repo-hygiene.sh"
+  printf '%s' "$good_workflow" > "$repo/.github/workflows/guards.yml"
+}
+
+# put PATH CONTENT: write a file in the current case's repository.
+put() {
+  mkdir -p "$(dirname "$repo/$1")"
+  printf '%s\n' "$2" > "$repo/$1"
+}
+
+# expect_pass NAME / expect_fail NAME "EXPECTED FAIL LINE": stage everything, run the guard, check
+# its exit code and, for failures, that the expected message appears.
+run_guard() {
+  git -C "$repo" add -A -f
+  set +e
+  output="$(cd "$repo" && bash scripts/guards/repo-hygiene.sh 2>&1)"
+  status=$?
+  set -e
+}
+
+expect_pass() {
+  run_guard
+  if [ "$status" -eq 0 ]; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+    printf 'NOT OK: %s: expected the guard to pass, got exit %s:\n%s\n\n' "$1" "$status" "$output"
+  fi
+}
+
+expect_fail() {
+  run_guard
+  if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF -- "$2"; then
+    passed=$((passed + 1))
+  else
+    failed=$((failed + 1))
+    printf 'NOT OK: %s: expected exit 1 with "%s", got exit %s:\n%s\n\n' "$1" "$2" "$status" "$output"
+  fi
+}
+
+# --- Cases that must pass ---
+new_repo
+expect_pass "clean repository"
+
+new_repo; put ".env.example" "API_KEY=placeholder"
+expect_pass ".env.example is allowed"
+
+new_repo; put ".github/workflows/notes.yml" "# pull_request_target is banned; this comment may say so
+on: [push]
+jobs: {}"
+expect_pass "pull_request_target mentioned only in a comment"
+
+# --- Check 1: environment files ---
+new_repo; put ".env" "X=1"
+expect_fail ".env at the root" "environment file is tracked: .env"
+
+new_repo; put "services/api/.env.local" "X=1"
+expect_fail "nested .env.local" "environment file is tracked: services/api/.env.local"
+
+new_repo; put "é/.env" "X=1"
+expect_fail ".env under a non-ASCII folder name" "environment file is tracked: é/.env"
+
+new_repo; put "my folder/.env" "X=1"
+expect_fail ".env under a folder name with a space" "environment file is tracked: my folder/.env"
+
+# --- Check 2: .DS_Store ---
+new_repo; put "docs/.DS_Store" "x"
+expect_fail "nested .DS_Store" ".DS_Store is tracked: docs/.DS_Store"
+
+new_repo; put "ñ/.DS_Store" "x"
+expect_fail ".DS_Store under a non-ASCII folder name" ".DS_Store is tracked: ñ/.DS_Store"
+
+# --- Check 3: pull_request_target ---
+new_repo; put ".github/workflows/bad.yml" "on:
+  pull_request_target:
+jobs: {}"
+expect_fail "pull_request_target, block style" ".github/workflows/bad.yml uses pull_request_target"
+
+new_repo; put ".github/workflows/bad.yaml" "on: [push, pull_request_target]
+jobs: {}"
+expect_fail "pull_request_target, inline list in a .yaml file" ".github/workflows/bad.yaml uses pull_request_target"
+
+# --- Check 4: actions pinned to a commit SHA ---
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    steps:
+      - uses: actions/checkout@v4"
+expect_fail "tag pin" "action not pinned to a commit SHA: actions/checkout@v4"
+
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    steps:
+      - uses: 'actions/checkout@v4'"
+expect_fail "quoted tag pin" "action not pinned to a commit SHA: actions/checkout@v4"
+
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    steps:
+      - {uses: evil/act@main}"
+expect_fail "inline mapping, uses first" "action not pinned to a commit SHA: evil/act@main"
+
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    steps:
+      - {name: Build, uses: evil/act@main, with: {x: 1}}"
+expect_fail "inline mapping, uses not first" "action not pinned to a commit SHA: evil/act@main"
+
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    uses: org/repo/.github/workflows/ci.yml@main"
+expect_fail "reusable workflow on a branch" "action not pinned to a commit SHA: org/repo/.github/workflows/ci.yml@main"
+
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    steps:
+      - uses: actions/checkout@0123456789ABCDEF0123456789ABCDEF01234567"
+expect_fail "uppercase SHA" "action not pinned to a commit SHA: actions/checkout@0123456789ABCDEF0123456789ABCDEF01234567"
+
+new_repo; put ".github/workflows/bad.yml" "jobs:
+  a:
+    steps:
+      - uses: actions/checkout@0123456789abcdef"
+expect_fail "short SHA" "action not pinned to a commit SHA: actions/checkout@0123456789abcdef"
+
+# --- The guard refuses to pass when it has nothing to check ---
+new_repo; rm "$repo/.github/workflows/guards.yml"; put "README.md" "x"
+expect_fail "guards.yml not tracked" "could not find .github/workflows/guards.yml"
+
+n=$((n + 1)); repo="$work/case$n"; mkdir -p "$repo/scripts/guards"; git -C "$repo" init -q
+cp "$guard" "$repo/scripts/guards/repo-hygiene.sh"
+set +e; output="$(cd "$repo" && bash scripts/guards/repo-hygiene.sh 2>&1)"; status=$?; set -e
+if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF "git ls-files returned no files"; then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+  printf 'NOT OK: no tracked files: expected a failure, got exit %s:\n%s\n\n' "$status" "$output"
+fi
+
+# --- Every problem is reported, not only the first ---
+new_repo; put ".env" "X=1"; put "a/.DS_Store" "x"; put ".github/workflows/bad.yml" "on: [pull_request_target]
+jobs: {a: {steps: [{uses: x/y@v1}]}}"
+run_guard
+if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF "4 problem(s) found"; then
+  passed=$((passed + 1))
+else
+  failed=$((failed + 1))
+  printf 'NOT OK: several problems: expected "4 problem(s) found", got exit %s:\n%s\n\n' "$status" "$output"
+fi
+
+echo "test-repo-hygiene: $passed passed, $failed failed."
+# A run with no cases would prove nothing.
+if [ "$passed" -eq 0 ] || [ "$failed" -gt 0 ]; then
+  exit 1
+fi
