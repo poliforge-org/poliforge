@@ -88,9 +88,9 @@ You are reviewing for correctness and test quality only. Check:
 
 You are reviewing for political neutrality and transparency only. Check:
 - No party, candidate, ideology or issue position is hard-coded in prompts, rankings, defaults,
-  sample data, copy or tests.
-- Every factual claim the software produces about a person, bill or vote carries a source, and
-  the code says so when it has none.
+  sample data, product copy or tests.
+- Every factual claim the software produces about a person, bill or vote links to its source, and
+  the software says so when it has none rather than guessing.
 - Generated content is a draft: nothing is sent, posted or published without an explicit human
   action.
 - Prompts are in the repo and readable.

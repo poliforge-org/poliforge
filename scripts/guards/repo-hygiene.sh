@@ -74,34 +74,50 @@ if [ "$found_own_workflow" != true ]; then
 fi
 
 for wf in "${workflows[@]+"${workflows[@]}"}"; do
-  # YAML comments are removed before checks 3 and 4, so a comment may explain a rule (the header
-  # of guards.yml names the banned trigger) without tripping it. A YAML comment starts with # at
-  # the start of a line or after whitespace; a # inside a value, as in a URL fragment, is kept.
-  code="$(sed -E 's/(^|[[:space:]])#.*$//' "$wf")"
+  # Only lines that are entirely a comment are skipped, so a comment may explain a rule (the header
+  # of guards.yml names the banned trigger) without tripping it. Comments at the end of a line are
+  # left in: telling them apart from a # inside a quoted value ("step #1") needs a YAML parser, and
+  # guessing wrong would hide real YAML from the checks. A trailing comment that mentions the banned
+  # trigger or a `uses:` therefore fails the guard, which is the safe way to be wrong.
+  #
+  # The text is passed to grep with <<< rather than through a pipe: with pipefail set, grep -q
+  # exiting at its first match can kill the writing side of a pipe and turn "found" into "not
+  # found" on a large file.
+  code="$(sed -E '/^[[:space:]]*#/d' "$wf")"
 
   # 3. pull_request_target runs with the base repo's secrets and write token while able to check
   #    out fork code. Banned outright (AGENTS.md, "This repository is public").
-  if printf '%s\n' "$code" | grep -q 'pull_request_target'; then
+  if grep -q 'pull_request_target' <<< "$code"; then
     fail "$wf uses pull_request_target"
   fi
 
   # 4. Third-party actions and reusable workflows must be pinned to a full 40-character commit
   #    SHA. A tag like @v4 can be moved by whoever controls the action's repo; a SHA can't.
-  #    Every `uses:` on a line is found, wherever it sits, so block style (- uses: x) and inline
-  #    style (- {name: a, uses: x}) are both checked. Example of one extracted reference:
-  #      `- uses: "actions/checkout@<sha>"`  ->  actions/checkout@<sha>
+  #    Every `uses:` key on a line is found, wherever it sits and whether or not it is quoted, so
+  #    block style (- uses: x), inline style (- {name: a, uses: x}) and "uses": x are all checked.
+  #    Example of one extracted reference:
+  #      `- uses: "actions/checkout@<sha>" # v1`  ->  actions/checkout@<sha>
   #    Local actions (./path) and docker:// images are exempt here.
+  #    Known limit: the words "uses:" inside a run: script are checked too and may be flagged.
+  #    That is a false alarm, never a miss; reword the script line if it happens.
+  uses_key="(^|[^[:alnum:]_-])[\"']?uses[\"']?:"
+
+  # A value on the next line (uses: followed by a line break) can't be read line by line, so it
+  # is rejected rather than skipped.
+  if grep -qE "${uses_key}[[:space:]]*\$" <<< "$code"; then
+    fail "$wf: put each action reference on the same line as its uses: key, so the pin can be checked"
+  fi
+
   while IFS= read -r ref; do
     [ -z "$ref" ] && continue
     case "$ref" in
       ./* | docker://*) continue ;;
     esac
-    if ! printf '%s' "$ref" | grep -qE '^[^@[:space:]]+@[0-9a-f]{40}$'; then
+    if ! grep -qE '^[^@[:space:]]+@[0-9a-f]{40}$' <<< "$ref"; then
       fail "$wf: action not pinned to a commit SHA: $ref"
     fi
-  done < <(printf '%s\n' "$code" \
-    | grep -oE "(^|[^[:alnum:]_-])uses:[[:space:]]*[^[:space:],}]+" \
-    | sed -E "s/^.*uses:[[:space:]]*//; s/^[\"']//; s/[\"']$//" \
+  done < <(grep -oE "${uses_key}[[:space:]]*[^[:space:],}]+" <<< "$code" \
+    | sed -E "s/^.*uses[\"']?:[[:space:]]*//; s/^[\"']//; s/[\"']\$//" \
     || true)
 done
 

@@ -19,7 +19,8 @@ failed=0
 n=0
 
 # A guards.yml that passes every check, used as the base of each case.
-good_workflow='name: Guards
+good_workflow='# This header may mention pull_request_target and uses: x@v1 without failing.
+name: Guards
 on:
   pull_request:
 jobs:
@@ -31,13 +32,19 @@ jobs:
       - uses: docker://alpine:3
 '
 
-# new_repo: make an empty repository with the guard and the good workflow staged.
-new_repo() {
+# new_bare_repo: an empty repository holding only the guard.
+new_bare_repo() {
   n=$((n + 1))
   repo="$work/case$n"
-  mkdir -p "$repo/.github/workflows" "$repo/scripts/guards"
+  mkdir -p "$repo/scripts/guards"
   git -C "$repo" init -q
   cp "$guard" "$repo/scripts/guards/repo-hygiene.sh"
+}
+
+# new_repo: a repository with the guard and the good workflow.
+new_repo() {
+  new_bare_repo
+  mkdir -p "$repo/.github/workflows"
   printf '%s' "$good_workflow" > "$repo/.github/workflows/guards.yml"
 }
 
@@ -47,8 +54,7 @@ put() {
   printf '%s\n' "$2" > "$repo/$1"
 }
 
-# expect_pass NAME / expect_fail NAME "EXPECTED FAIL LINE": stage everything, run the guard, check
-# its exit code and, for failures, that the expected message appears.
+# run_guard: stage everything in the current case's repository and run the guard there.
 run_guard() {
   git -C "$repo" add -A -f
   set +e
@@ -57,6 +63,7 @@ run_guard() {
   set -e
 }
 
+# expect_pass NAME: the guard must exit 0.
 expect_pass() {
   run_guard
   if [ "$status" -eq 0 ]; then
@@ -67,6 +74,7 @@ expect_pass() {
   fi
 }
 
+# expect_fail NAME MESSAGE: the guard must exit non-zero and print MESSAGE.
 expect_fail() {
   run_guard
   if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF -- "$2"; then
@@ -77,6 +85,11 @@ expect_fail() {
   fi
 }
 
+# step YAML: a workflow whose only step is YAML (indented to sit under steps:).
+step() {
+  printf 'jobs:\n  a:\n    steps:\n      %s\n' "$1"
+}
+
 # --- Cases that must pass ---
 new_repo
 expect_pass "clean repository"
@@ -84,10 +97,13 @@ expect_pass "clean repository"
 new_repo; put ".env.example" "API_KEY=placeholder"
 expect_pass ".env.example is allowed"
 
-new_repo; put ".github/workflows/notes.yml" "# pull_request_target is banned; this comment may say so
+new_repo; put ".github/workflows/notes.yml" "  # pull_request_target is banned; an indented comment may say so
 on: [push]
 jobs: {}"
-expect_pass "pull_request_target mentioned only in a comment"
+expect_pass "pull_request_target mentioned only in a full-line comment"
+
+new_repo; put ".github/workflows/ok.yml" "$(step '- {name: "step #1", uses: actions/checkout@0123456789abcdef0123456789abcdef01234567}')"
+expect_pass "a # inside a quoted value next to a pinned action"
 
 # --- Check 1: environment files ---
 new_repo; put ".env" "X=1"
@@ -119,54 +135,61 @@ new_repo; put ".github/workflows/bad.yaml" "on: [push, pull_request_target]
 jobs: {}"
 expect_fail "pull_request_target, inline list in a .yaml file" ".github/workflows/bad.yaml uses pull_request_target"
 
+new_repo; put ".github/workflows/bad.yml" 'on: {workflow_dispatch: {inputs: {a: {description: "a #"}}}, pull_request_target: {}}
+jobs: {}'
+expect_fail "pull_request_target after a # inside a quoted value" ".github/workflows/bad.yml uses pull_request_target"
+
+new_repo; put ".github/workflows/bad.yml" "on: [push] # not pull_request_target
+jobs: {}"
+expect_fail "pull_request_target in a trailing comment fails (the safe way to be wrong)" ".github/workflows/bad.yml uses pull_request_target"
+
+# Over 64 KB, where a pipe into grep -q could lose the match.
+new_repo; put ".github/workflows/bad.yml" "on: [pull_request_target]
+env:
+$(for i in $(seq 1 3000); do printf '  PAD_%s: padding value to make this workflow file large\n' "$i"; done)
+jobs: {}"
+expect_fail "pull_request_target at the top of a large workflow" ".github/workflows/bad.yml uses pull_request_target"
+
 # --- Check 4: actions pinned to a commit SHA ---
-new_repo; put ".github/workflows/bad.yml" "jobs:
-  a:
-    steps:
-      - uses: actions/checkout@v4"
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses: actions/checkout@v4')"
 expect_fail "tag pin" "action not pinned to a commit SHA: actions/checkout@v4"
 
-new_repo; put ".github/workflows/bad.yml" "jobs:
-  a:
-    steps:
-      - uses: 'actions/checkout@v4'"
+new_repo; put ".github/workflows/bad.yml" "$(step "- uses: 'actions/checkout@v4'")"
 expect_fail "quoted tag pin" "action not pinned to a commit SHA: actions/checkout@v4"
 
-new_repo; put ".github/workflows/bad.yml" "jobs:
-  a:
-    steps:
-      - {uses: evil/act@main}"
+new_repo; put ".github/workflows/bad.yml" "$(step '- {uses: evil/act@main}')"
 expect_fail "inline mapping, uses first" "action not pinned to a commit SHA: evil/act@main"
 
-new_repo; put ".github/workflows/bad.yml" "jobs:
-  a:
-    steps:
-      - {name: Build, uses: evil/act@main, with: {x: 1}}"
+new_repo; put ".github/workflows/bad.yml" "$(step '- {name: Build, uses: evil/act@main, with: {x: 1}}')"
 expect_fail "inline mapping, uses not first" "action not pinned to a commit SHA: evil/act@main"
+
+new_repo; put ".github/workflows/bad.yml" "$(step '- {name: "a #", uses: evil/act@main}')"
+expect_fail "uses after a # inside a quoted value" "action not pinned to a commit SHA: evil/act@main"
+
+new_repo; put ".github/workflows/bad.yml" "$(step '- {"uses": "evil/act@main"}')"
+expect_fail "quoted uses key" "action not pinned to a commit SHA: evil/act@main"
+
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses:
+        actions/checkout@v4')"
+expect_fail "uses with its value on the next line" "put each action reference on the same line as its uses: key"
 
 new_repo; put ".github/workflows/bad.yml" "jobs:
   a:
     uses: org/repo/.github/workflows/ci.yml@main"
 expect_fail "reusable workflow on a branch" "action not pinned to a commit SHA: org/repo/.github/workflows/ci.yml@main"
 
-new_repo; put ".github/workflows/bad.yml" "jobs:
-  a:
-    steps:
-      - uses: actions/checkout@0123456789ABCDEF0123456789ABCDEF01234567"
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses: actions/checkout@0123456789ABCDEF0123456789ABCDEF01234567')"
 expect_fail "uppercase SHA" "action not pinned to a commit SHA: actions/checkout@0123456789ABCDEF0123456789ABCDEF01234567"
 
-new_repo; put ".github/workflows/bad.yml" "jobs:
-  a:
-    steps:
-      - uses: actions/checkout@0123456789abcdef"
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses: actions/checkout@0123456789abcdef')"
 expect_fail "short SHA" "action not pinned to a commit SHA: actions/checkout@0123456789abcdef"
 
 # --- The guard refuses to pass when it has nothing to check ---
-new_repo; rm "$repo/.github/workflows/guards.yml"; put "README.md" "x"
+new_bare_repo; put "README.md" "x"
 expect_fail "guards.yml not tracked" "could not find .github/workflows/guards.yml"
 
-n=$((n + 1)); repo="$work/case$n"; mkdir -p "$repo/scripts/guards"; git -C "$repo" init -q
-cp "$guard" "$repo/scripts/guards/repo-hygiene.sh"
+new_bare_repo
+git -C "$repo" rm -q --cached -r . 2>/dev/null || true
 set +e; output="$(cd "$repo" && bash scripts/guards/repo-hygiene.sh 2>&1)"; status=$?; set -e
 if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF "git ls-files returned no files"; then
   passed=$((passed + 1))
@@ -178,13 +201,7 @@ fi
 # --- Every problem is reported, not only the first ---
 new_repo; put ".env" "X=1"; put "a/.DS_Store" "x"; put ".github/workflows/bad.yml" "on: [pull_request_target]
 jobs: {a: {steps: [{uses: x/y@v1}]}}"
-run_guard
-if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF "4 problem(s) found"; then
-  passed=$((passed + 1))
-else
-  failed=$((failed + 1))
-  printf 'NOT OK: several problems: expected "4 problem(s) found", got exit %s:\n%s\n\n' "$status" "$output"
-fi
+expect_fail "several problems in one run" "4 problem(s) found"
 
 echo "test-repo-hygiene: $passed passed, $failed failed."
 # A run with no cases would prove nothing.

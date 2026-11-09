@@ -15,29 +15,38 @@
 // the template can't quietly leave old boilerplate counting as prose. Headings and the footer AI
 // tools add ("🤖 Generated with ...") don't count either.
 //
-// Draft PRs are skipped. The check runs when a PR is marked ready for review, which is when the
-// description matters. It needs no dependencies and no token: in CI it reads the PR from the
-// event file GitHub provides (GITHUB_EVENT_PATH).
+// Draft PRs are skipped, because a draft's description is still being written. Once a PR is
+// ready for review, the check runs on every update to it (new commits, edited description).
+//
+// Needs Node 18 or later and nothing else: it uses only Node's built-in modules and no token. In
+// CI it reads the PR from the event file GitHub provides (GITHUB_EVENT_PATH). Node is used because
+// GitHub's runners include it; the guards don't depend on whatever stack PoliForge picks.
 
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+// About three sentences: enough for one each on why, what changed and how it was verified. The
+// review table usually adds far more; this is a floor against an empty template, not a target.
 export const MIN_CHARS = 200;
 
-const TEMPLATE_PATH = fileURLToPath(
+const MIN_NODE_MAJOR = 18;
+
+export const TEMPLATE_PATH = fileURLToPath(
   new URL('../../.github/pull_request_template.md', import.meta.url),
 );
 
-// Compare lines without caring about indentation, repeated spaces or a ticked checkbox.
+// Compare lines without caring about indentation, repeated spaces, the list marker (-, * or +)
+// or whether a checkbox is ticked.
 function normalize(line) {
   return line
     .trim()
-    .replace(/^- \[[xX]\]/, '- [ ]')
-    .replace(/\s+/g, ' ');
+    .replace(/\s+/g, ' ')
+    .replace(/^[-*+] \[[ xX]\]/, '- [ ]');
 }
 
+// An HTML comment that is never closed hides the rest of the text, as it would on GitHub.
 function withoutComments(text) {
-  return text.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?-->/g, '');
+  return text.replace(/\r\n?/g, '\n').replace(/<!--[\s\S]*?(-->|$)/g, '');
 }
 
 // Returns the author's own writing in `body`, joined into one line.
@@ -92,6 +101,10 @@ function readPullRequest(argv, env) {
 
 function main() {
   try {
+    const major = Number(process.versions.node.split('.')[0]);
+    if (major < MIN_NODE_MAJOR) {
+      throw new Error(`needs Node ${MIN_NODE_MAJOR} or later; this is Node ${process.versions.node}.`);
+    }
     // Without the template, its boilerplate would count as the author's writing.
     if (!existsSync(TEMPLATE_PATH)) {
       throw new Error(`${TEMPLATE_PATH} is missing; the check can't tell template text from the author's writing.`);
@@ -106,6 +119,17 @@ function main() {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+// Run only when started directly, not when the tests import this file. Real paths are compared
+// so a run through a symlinked folder (as /tmp is on macOS) still checks instead of exiting 0.
+function startedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (startedDirectly()) {
   main();
 }

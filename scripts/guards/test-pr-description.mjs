@@ -8,16 +8,13 @@
 
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { authorProse, checkPullRequest, MIN_CHARS } from './pr-description.mjs';
+import { authorProse, checkPullRequest, MIN_CHARS, TEMPLATE_PATH } from './pr-description.mjs';
 
-const template = readFileSync(
-  fileURLToPath(new URL('../../.github/pull_request_template.md', import.meta.url)),
-  'utf8',
-);
+const template = readFileSync(TEMPLATE_PATH, 'utf8');
 const script = fileURLToPath(new URL('./pr-description.mjs', import.meta.url));
 const footer = '\n🤖 Generated with [an AI tool](https://example.com)\n\nhttps://example.com/session/123\n';
 const tickAll = (text) => text.replace(/- \[ \]/g, '- [x]');
@@ -47,6 +44,19 @@ test('ticking every checkbox adds no writing', () => {
 
 test('the AI-tool footer adds no writing', () => {
   assert.equal(authorProse(template + footer, template), '');
+});
+
+test('ticking with * or + markers or extra spaces adds no writing', () => {
+  const variants = [
+    template.replace(/- \[ \]/g, '* [x]'),
+    template.replace(/- \[ \]/g, '+ [X]'),
+    template.replace(/- \[ \]/g, '-  [x]'),
+  ];
+  for (const body of variants) assert.equal(authorProse(body, template), '');
+});
+
+test('an unclosed HTML comment hides the rest, as it does on GitHub', () => {
+  assert.equal(authorProse(`<!-- ${prose(300)}`, template), '');
 });
 
 test('Windows line endings are handled', () => {
@@ -127,6 +137,29 @@ test('CI: a draft PR exits 0', () => {
 
 test('CI: an event with no pull request exits 1 instead of passing', () => {
   const run = runWithEvent({ ref: 'refs/heads/main' });
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+});
+
+function runWithFile(body, scriptPath = script) {
+  const file = join(work, 'description.md');
+  writeFileSync(file, body);
+  return spawnSync(process.execPath, [scriptPath, file], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
+}
+
+test('local: a thin description file exits 1', () => {
+  const run = runWithFile(template);
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+});
+
+test('local: a well-described file exits 0', () => {
+  const run = runWithFile(template.replace('## Why\n', `## Why\n${prose(MIN_CHARS)}\n`));
+  assert.equal(run.status, 0, run.stdout + run.stderr);
+});
+
+test('local: run through a symlinked folder, a thin file still exits 1', () => {
+  const linked = join(work, 'linked-guards');
+  symlinkSync(dirname(script), linked, 'dir');
+  const run = runWithFile(template, join(linked, 'pr-description.mjs'));
   assert.equal(run.status, 1, run.stdout + run.stderr);
 });
 
