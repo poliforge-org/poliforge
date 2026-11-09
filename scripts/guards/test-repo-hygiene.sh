@@ -164,6 +164,16 @@ new_repo; put ".github/workflows/bad.yml" "on: [push] # not pull_request_target
 jobs: {}"
 expect_fail "pull_request_target in a trailing comment fails (the safe way to be wrong)" ".github/workflows/bad.yml uses pull_request_target"
 
+new_repo; put ".github/workflows/bad.yml" "on:
+  workflow_run:
+    workflows: [Guards]
+jobs: {}"
+expect_fail "workflow_run" ".github/workflows/bad.yml uses workflow_run"
+
+new_repo; put ".github/workflows/bad.yml" "on: [issue_comment]
+jobs: {}"
+expect_fail "issue_comment" ".github/workflows/bad.yml uses issue_comment"
+
 # Over 64 KB, where a pipe into grep -q could lose the match.
 new_repo; put ".github/workflows/bad.yml" "on: [pull_request_target]
 env:

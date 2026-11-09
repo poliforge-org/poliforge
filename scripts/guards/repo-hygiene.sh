@@ -108,11 +108,16 @@ for wf in "${yaml_files[@]+"${yaml_files[@]}"}"; do
   # found" on a large file.
   code="$(sed -E '/^[[:space:]]*#/d' "$wf")"
 
-  # 3. pull_request_target runs with the base repo's secrets and write token while able to check
-  #    out fork code. Banned outright (AGENTS.md, "This repository is public").
-  if grep -q 'pull_request_target' <<< "$code"; then
-    fail "$wf uses pull_request_target"
-  fi
+  # 3. Triggers that run with the base repo's secrets and a write token in response to fork
+  #    activity: pull_request_target (fork PRs), workflow_run (after a fork PR's workflow ends)
+  #    and issue_comment (anyone can comment on a PR). Banned outright (AGENTS.md, "This
+  #    repository is public"). The words are matched anywhere, so a step name that mentions one
+  #    fails too; that is a false alarm, never a miss.
+  for trigger in pull_request_target workflow_run issue_comment; do
+    if grep -q "$trigger" <<< "$code"; then
+      fail "$wf uses $trigger"
+    fi
+  done
 
   # 4. Third-party actions and reusable workflows must be pinned to a full 40-character commit
   #    SHA, and docker:// images to a sha256 digest. A tag like @v4 or :latest can be moved by

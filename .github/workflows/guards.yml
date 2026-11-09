@@ -4,7 +4,8 @@
 #
 # Security notes, because this repo is public:
 # - Triggered by `pull_request`, never `pull_request_target`, so fork PRs run with a read-only
-#   token and no secrets. repo-hygiene.sh fails the build if pull_request_target ever appears.
+#   token and no secrets. repo-hygiene.sh fails the build if pull_request_target, workflow_run
+#   or issue_comment ever appears.
 # - Every third-party action is pinned to a full commit SHA (the version tag is in the trailing
 #   comment). Dependabot (.github/dependabot.yml) opens PRs to bump them.
 # - The only permission is reading the repository's contents. The checks are scripts in this
