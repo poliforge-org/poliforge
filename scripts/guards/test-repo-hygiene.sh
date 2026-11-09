@@ -29,7 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v1.0.0
       - uses: ./local-action
-      - uses: docker://alpine:3
+      - uses: docker://alpine@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 '
 
 # new_bare_repo: an empty repository holding only the guard.
@@ -97,6 +97,12 @@ expect_pass "clean repository"
 new_repo; put ".env.example" "API_KEY=placeholder"
 expect_pass ".env.example is allowed"
 
+new_repo; put ".github/actions/build/action.yml" "runs:
+  using: composite
+  steps:
+    - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567"
+expect_pass "a composite action with a pinned step"
+
 new_repo; put ".github/workflows/notes.yml" "  # pull_request_target is banned; an indented comment may say so
 on: [push]
 jobs: {}"
@@ -114,6 +120,9 @@ expect_fail "nested .env.local" "environment file is tracked: services/api/.env.
 
 new_repo; put "é/.env" "X=1"
 expect_fail ".env under a non-ASCII folder name" "environment file is tracked: é/.env"
+
+new_repo; put "tools/.envrc" "export X=1"
+expect_fail ".envrc (direnv)" "environment file is tracked: tools/.envrc"
 
 new_repo; put "my folder/.env" "X=1"
 expect_fail ".env under a folder name with a space" "environment file is tracked: my folder/.env"
@@ -169,6 +178,24 @@ expect_fail "uses after a # inside a quoted value" "action not pinned to a commi
 new_repo; put ".github/workflows/bad.yml" "$(step '- {"uses": "evil/act@main"}')"
 expect_fail "quoted uses key" "action not pinned to a commit SHA: evil/act@main"
 
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses : actions/checkout@v4')"
+expect_fail "space before the colon" "action not pinned to a commit SHA: actions/checkout@v4"
+
+new_repo; put ".github/workflows/bad.yml" "$(step "- uses$(printf '\t'): actions/checkout@v4")"
+expect_fail "tab before the colon" "action not pinned to a commit SHA: actions/checkout@v4"
+
+new_repo; put ".github/workflows/bad.yml" "$(step '- {"uses" : "evil/act@main"}')"
+expect_fail "quoted key with a space before the colon" "action not pinned to a commit SHA: evil/act@main"
+
+new_repo; put ".github/workflows/bad.yml" "$(step '- uses: docker://evil/img:latest')"
+expect_fail "docker image on a tag" "docker image not pinned to a sha256 digest: docker://evil/img:latest"
+
+new_repo; put ".github/actions/build/action.yaml" "runs:
+  using: composite
+  steps:
+    - uses: evil/act@main"
+expect_fail "unpinned step inside a composite action" ".github/actions/build/action.yaml: action not pinned to a commit SHA: evil/act@main"
+
 new_repo; put ".github/workflows/bad.yml" "$(step '- uses:
         actions/checkout@v4')"
 expect_fail "uses with its value on the next line" "put each action reference on the same line as its uses: key"
@@ -188,8 +215,8 @@ expect_fail "short SHA" "action not pinned to a commit SHA: actions/checkout@012
 new_bare_repo; put "README.md" "x"
 expect_fail "guards.yml not tracked" "could not find .github/workflows/guards.yml"
 
+# Nothing is staged here, so run_guard (which stages everything first) can't be used.
 new_bare_repo
-git -C "$repo" rm -q --cached -r . 2>/dev/null || true
 set +e; output="$(cd "$repo" && bash scripts/guards/repo-hygiene.sh 2>&1)"; status=$?; set -e
 if [ "$status" -ne 0 ] && printf '%s' "$output" | grep -qF "git ls-files returned no files"; then
   passed=$((passed + 1))

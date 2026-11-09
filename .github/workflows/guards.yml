@@ -28,30 +28,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Run repo-hygiene guard
-        run: bash scripts/guards/repo-hygiene.sh
-      # The guards' own tests run in this required job, so a change that stops a guard from
-      # catching what it was written to catch fails here instead of passing quietly. Every
-      # scripts/guards/test-* file runs, so a new guard's tests can't be left out by forgetting to
-      # list them, and finding no tests at all is a failure.
-      - name: Test the guards
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          tests=(scripts/guards/test-*)
-          if [ "${#tests[@]}" -eq 0 ]; then
-            echo "No scripts/guards/test-* files found; the guards are untested."
-            exit 1
-          fi
-          for t in "${tests[@]}"; do
-            echo "::group::$t"
-            case "$t" in
-              *.sh) bash "$t" ;;
-              *.mjs) node "$t" ;;
-              *) echo "Don't know how to run $t (expected .sh or .mjs)."; exit 1 ;;
-            esac
-            echo "::endgroup::"
-          done
+      # Runs the repo-hygiene guard and every guard's tests, the same script contributors run
+      # locally. The tests run in this required job, so a change that stops a guard from catching
+      # what it was written to catch fails here instead of passing quietly.
+      - name: Run the guards and their tests
+        run: bash scripts/guards/run-all.sh
 
   pr-description:
     name: PR description

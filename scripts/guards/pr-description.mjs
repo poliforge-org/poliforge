@@ -29,6 +29,8 @@ import { fileURLToPath } from 'node:url';
 // review table usually adds far more; this is a floor against an empty template, not a target.
 export const MIN_CHARS = 200;
 
+// Checked in main() so a too-old local Node says so plainly. Versions old enough to lack the
+// node: imports above fail before main() runs, with Node's own error.
 const MIN_NODE_MAJOR = 18;
 
 export const TEMPLATE_PATH = fileURLToPath(

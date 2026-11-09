@@ -41,16 +41,20 @@ if [ "${#files[@]}" -eq 0 ]; then
   fail "git ls-files returned no files; the guard has nothing to check"
 fi
 
-workflows=()
+# The YAML files that can name an action: workflows, and composite actions (action.yml) wherever
+# they live. A composite action called as a local action (uses: ./path) is exempt from pinning
+# itself, so the actions inside it must be checked here.
+yaml_files=()
 found_own_workflow=false
 # "${array[@]+...}" keeps an empty array from tripping set -u on older bash (macOS ships 3.2).
 for path in "${files[@]+"${files[@]}"}"; do
   name="${path##*/}"
 
   # 1. No environment files. .env.example (placeholders only) is the one allowed exception.
+  #    .envrc is direnv's environment file and holds the same kind of secrets.
   case "$name" in
     .env.example) ;;
-    .env | .env.*) fail "environment file is tracked: $path (secrets belong in a gitignored .env)" ;;
+    .env | .env.* | .envrc) fail "environment file is tracked: $path (secrets belong in a gitignored .env)" ;;
   esac
 
   # 2. No macOS metadata files.
@@ -58,22 +62,36 @@ for path in "${files[@]+"${files[@]}"}"; do
     fail ".DS_Store is tracked: $path"
   fi
 
-  # Checks 3 and 4 only look at workflow files. A glob, not a regex, so the dots are literal.
+  # Checks 3 and 4 only look at YAML that can name an action. Globs, not regexes, so the dots are
+  # literal.
   case "$path" in
-    .github/workflows/*.yml | .github/workflows/*.yaml) workflows+=("$path") ;;
+    .github/workflows/*.yml | .github/workflows/*.yaml) yaml_files+=("$path") ;;
+    *)
+      case "$name" in
+        action.yml | action.yaml) yaml_files+=("$path") ;;
+      esac
+      ;;
   esac
   if [ "$path" = ".github/workflows/guards.yml" ]; then
     found_own_workflow=true
   fi
 done
 
-# The guard must find its own workflow. If the workflow filter above ever broke, every workflow
-# check below would pass on an empty list.
+# The guard must find its own workflow. If the file filter above ever broke, every workflow check
+# below would pass on an empty list.
 if [ "$found_own_workflow" != true ]; then
   fail "could not find .github/workflows/guards.yml; the workflow checks would check nothing"
 fi
 
-for wf in "${workflows[@]+"${workflows[@]}"}"; do
+# Matches a uses key: quoted or not, with optional spaces before the colon (YAML allows both).
+uses_key="(^|[^[:alnum:]_-])[\"']?uses[\"']?[[:space:]]*:"
+
+# Checks 3 and 4 read the files as text, not as YAML, so YAML written to hide a key from a text
+# search gets past them: escaped key names ("use\x73"), explicit keys (? uses) and anchors or
+# aliases used as keys. The repository's "require actions to be pinned to a full-length commit
+# SHA" setting enforces pinning when a workflow runs; this guard catches ordinary mistakes early
+# and in review. Reviewers should read any change to .github/ or scripts/guards/ themselves.
+for wf in "${yaml_files[@]+"${yaml_files[@]}"}"; do
   # Only lines that are entirely a comment are skipped, so a comment may explain a rule (the header
   # of guards.yml names the banned trigger) without tripping it. Comments at the end of a line are
   # left in: telling them apart from a # inside a quoted value ("step #1") needs a YAML parser, and
@@ -92,15 +110,14 @@ for wf in "${workflows[@]+"${workflows[@]}"}"; do
   fi
 
   # 4. Third-party actions and reusable workflows must be pinned to a full 40-character commit
-  #    SHA. A tag like @v4 can be moved by whoever controls the action's repo; a SHA can't.
-  #    Every `uses:` key on a line is found, wherever it sits and whether or not it is quoted, so
-  #    block style (- uses: x), inline style (- {name: a, uses: x}) and "uses": x are all checked.
-  #    Example of one extracted reference:
+  #    SHA, and docker:// images to a sha256 digest. A tag like @v4 or :latest can be moved by
+  #    whoever controls it; a SHA or digest can't. Every uses key on a line is found, wherever it
+  #    sits, so block style (- uses: x), inline style (- {name: a, uses: x}) and "uses" : x are
+  #    all checked. Example of one extracted reference:
   #      `- uses: "actions/checkout@<sha>" # v1`  ->  actions/checkout@<sha>
-  #    Local actions (./path) and docker:// images are exempt here.
+  #    Local actions (./path) are exempt; any action.yml they point to is checked as its own file.
   #    Known limit: the words "uses:" inside a run: script are checked too and may be flagged.
   #    That is a false alarm, never a miss; reword the script line if it happens.
-  uses_key="(^|[^[:alnum:]_-])[\"']?uses[\"']?:"
 
   # A value on the next line (uses: followed by a line break) can't be read line by line, so it
   # is rejected rather than skipped.
@@ -111,13 +128,19 @@ for wf in "${workflows[@]+"${workflows[@]}"}"; do
   while IFS= read -r ref; do
     [ -z "$ref" ] && continue
     case "$ref" in
-      ./* | docker://*) continue ;;
+      ./*) continue ;;
+      docker://*)
+        if ! grep -qE '^docker://[^@[:space:]]+@sha256:[0-9a-f]{64}$' <<< "$ref"; then
+          fail "$wf: docker image not pinned to a sha256 digest: $ref"
+        fi
+        continue
+        ;;
     esac
     if ! grep -qE '^[^@[:space:]]+@[0-9a-f]{40}$' <<< "$ref"; then
       fail "$wf: action not pinned to a commit SHA: $ref"
     fi
   done < <(grep -oE "${uses_key}[[:space:]]*[^[:space:],}]+" <<< "$code" \
-    | sed -E "s/^.*uses[\"']?:[[:space:]]*//; s/^[\"']//; s/[\"']\$//" \
+    | sed -E "s/^.*uses[\"']?[[:space:]]*:[[:space:]]*//; s/^[\"']//; s/[\"']\$//" \
     || true)
 done
 

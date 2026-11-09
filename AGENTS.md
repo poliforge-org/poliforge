@@ -94,7 +94,8 @@ Code quality and security come before speed here.
   green: fix the cause, or ask.
 - Enforce rules in code where you can: a guard that scans the source beats a sentence here.
 - **Before a PR leaves draft:**
-  1. Run the full test suite, typecheck, lint and build locally, plus `scripts/guards/repo-hygiene.sh`.
+  1. Run the full test suite, typecheck, lint and build locally, plus `scripts/guards/run-all.sh`
+     (the repo-hygiene guard and every guard's tests).
   2. Run the **review in `docs/review.md`**: five lenses (security, privacy and data, correctness
      and tests, neutrality, maintainability), each done by a reviewer who didn't write the change.
   3. Fix every blocking finding, then record each lens's verdict and your responses under

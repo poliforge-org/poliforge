@@ -110,6 +110,8 @@ test('draft PRs are skipped', () => {
 
 // --- The script as CI runs it ---
 const work = mkdtempSync(join(tmpdir(), 'pr-description-'));
+// Removed however the run ends, including an error outside a test.
+process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 function runWithEvent(event) {
   const eventPath = join(work, 'event.json');
   writeFileSync(eventPath, JSON.stringify(event));
@@ -168,7 +170,6 @@ test('CI: no event file and no argument exits 1', () => {
   assert.equal(run.status, 1, run.stdout + run.stderr);
 });
 
-rmSync(work, { recursive: true, force: true });
 
 console.log(`test-pr-description: ${passed} passed, ${failed} failed.`);
 // A run with no cases would prove nothing.
