@@ -1,0 +1,27 @@
+# Secrets. .env.example (placeholder values only) is the one env file that belongs in git.
+.env
+.env.*
+!.env.example
+.envrc
+*.env
+
+# Key and credential files. Push protection catches many secrets, not all of them.
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+service-account*.json
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local AI agent state that should not be published
+.claude/settings.local.json
+
+# Stack-specific entries (node_modules, __pycache__, build output) are added with the stack
+# decision record.

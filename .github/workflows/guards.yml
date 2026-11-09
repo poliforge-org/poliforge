@@ -1,0 +1,52 @@
+# Guards: checks that hold for every change, whatever the stack turns out to be.
+# Stack-specific CI (typecheck, tests, build) is added in its own workflow once the stack decision
+# record picks a stack. Require both jobs below as status checks on `main`.
+#
+# Security notes, because this repo is public:
+# - Triggered by `pull_request`, never `pull_request_target`, so fork PRs run with a read-only
+#   token and no secrets. repo-hygiene.sh fails the build if pull_request_target, workflow_run
+#   or issue_comment ever appears.
+# - Every third-party action is pinned to a full commit SHA (the version tag is in the trailing
+#   comment). Dependabot (.github/dependabot.yml) opens PRs to bump them.
+# - The only permission is reading the repository's contents. The checks are scripts in this
+#   repo with no dependencies, so they're as readable as the rules they enforce.
+name: Guards
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  repo-hygiene:
+    name: Repo hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Runs the repo-hygiene guard and every guard's tests, the same script contributors run
+      # locally. The tests run in this required job, so a change that stops a guard from catching
+      # what it was written to catch fails here instead of passing quietly.
+      - name: Run the guards and their tests
+        run: bash scripts/guards/run-all.sh
+
+  pr-description:
+    name: PR description
+    runs-on: ubuntu-latest
+    # On pushes to main there is no PR description to check. The job is skipped there, which
+    # GitHub reports as success for required checks.
+    if: github.event_name == 'pull_request'
+    steps:
+      # Checked out for the script and the PR template it compares the description against.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Reads the PR from the event file GitHub provides. The description is only ever read as
+      # data by the script, never placed into this shell command.
+      - name: Check the PR description
+        run: node scripts/guards/pr-description.mjs

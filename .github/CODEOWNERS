@@ -1,0 +1,11 @@
+# The maintainer reviews every change to the project's rules and to the checks that enforce them.
+# A pull request can change a guard and its tests together, so a green CI run alone doesn't prove
+# the guard still works; a person has to read the change.
+#
+# This takes effect when the `main` ruleset turns on "Require review from Code Owners".
+
+/.github/        @Tyler-Pritchard
+/scripts/guards/ @Tyler-Pritchard
+/AGENTS.md       @Tyler-Pritchard
+/CLAUDE.md       @Tyler-Pritchard
+/docs/review.md  @Tyler-Pritchard
